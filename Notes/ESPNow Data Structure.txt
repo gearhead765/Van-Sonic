@@ -1,0 +1,5 @@
+// ESP-NOW configuration
+typedef struct {
+  int16_t distance;
+  uint8_t id;
+} EspNowMessage;

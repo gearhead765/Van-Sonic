@@ -1,0 +1,849 @@
+<!doctype html>
+<html>
+
+<head>
+  <meta charset=utf-8>
+  <meta http-equiv=X-UA-Compatible content=IE=edge>
+  <meta name=viewport content="width=device-width, initial-scale=1">
+  <title>Van Sonic Setup</title>
+  <link rel="icon" type="image/png" href="images/favicon.png">
+  <style>
+    :root {
+      --space-1: 8px;
+      --space-2: 12px;
+      --space-3: 16px;
+      --space-4: 20px;
+      --space-5: 24px;
+      --text-xs: 12px;
+      --text-sm: 13px;
+      --text-md: 15px;
+      --text-lg: 16px;
+      --text-xl: 18px;
+      color-scheme: light dark;
+      --muted: #475569;
+      --note: #d14343;
+      --bg: #f3f6fa;
+      --text: #1f2a37;
+      --card: #ffffff;
+      --border: #dfe5ee;
+      --border-soft: #e5e7eb;
+      --border-faint: #edf1f5;
+      --shadow: rgba(15, 23, 42, 0.06);
+      --tab-bg: #aebdd2;
+      --tab-text: #ffffff;
+      --tab-active-bg: #dfe5ee;
+      --tab-active-text: #1f2937;
+      --active-icon-filter: none;
+      --input-bg: #ffffff;
+      --input-border: #d9e1ea;
+      --input-text: #1f2937;
+      --focus: #7aa7ff;
+      --panel-bg: #f9fafb;
+      --panel-head: #f3f6fa;
+      --helper: #6b7280;
+      --good: #166534;
+      --warn: #92400e;
+      --bad: #991b1b;
+      --neutral: #334155;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --muted: #a8b3c4;
+        --note: #f87171;
+        --bg: #0f141b;
+        --text: #e2e8f0;
+        --card: #19202a;
+        --border: #2b3544;
+        --border-soft: #2b3544;
+        --border-faint: #252e3b;
+        --shadow: rgba(0, 0, 0, 0.4);
+        --tab-bg: #2a3444;
+        --tab-text: #cbd5e1;
+        --tab-active-bg: #3a4a60;
+        --tab-active-text: #f1f5f9;
+        --active-icon-filter: brightness(0) invert(1);
+        --input-bg: #121820;
+        --input-border: #384456;
+        --input-text: #e2e8f0;
+        --focus: #5b8def;
+        --panel-bg: #1d2530;
+        --panel-head: #232d3b;
+        --helper: #94a3b8;
+        --good: #86efac;
+        --warn: #fcd34d;
+        --bad: #fca5a5;
+        --neutral: #cbd5e1;
+      }
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: Arial, Helvetica, sans-serif;
+      margin: 0;
+      padding: 24px 12px;
+      font-size: var(--text-md);
+    }
+
+    .main-box {
+      max-width: 860px;
+      margin: 0 auto;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 8px 24px var(--shadow);
+      padding: 20px;
+    }
+
+    .setup-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 0 0 var(--space-4);
+      border-bottom: 1px solid var(--border-soft);
+      padding: 0;
+      list-style: none;
+    }
+
+    .setup-tabs li {
+      margin: 0;
+    }
+
+    .setup-tabs a {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      border: 1px solid var(--border);
+      border-bottom: none;
+      border-radius: 8px 8px 0 0;
+      color: var(--tab-text);
+      text-decoration: none;
+      font-weight: 600;
+      background: var(--tab-bg);
+    }
+
+    .setup-tabs li.active a {
+      background: var(--tab-active-bg);
+      color: var(--tab-active-text);
+      border-color: var(--tab-active-bg);
+      border-bottom: 1px solid var(--tab-active-bg);
+      margin-bottom: -1px;
+    }
+
+    .setup-tabs img {
+      width: 18px;
+      height: 18px;
+      opacity: 1;
+      filter: brightness(0) invert(1);
+    }
+
+    .setup-tabs li.active a img {
+      filter: var(--active-icon-filter);
+    }
+
+    .setup-tabs a[href="#espnow"] img {
+      filter: brightness(0) invert(1) saturate(1.5);
+    }
+
+    .setup-tabs li.active a[href="#espnow"] img {
+      filter: saturate(1.5);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .setup-tabs li.active a[href="#espnow"] img {
+        filter: brightness(0) invert(1) saturate(1.5);
+      }
+    }
+
+    .default-pass-warning {
+      display: none;
+      margin: 0 0 var(--space-4);
+      padding: 10px 14px;
+      border: 1px solid var(--note);
+      border-radius: 8px;
+      color: var(--note);
+      font-size: var(--text-sm);
+      font-weight: 600;
+    }
+
+    .status-msg {
+      display: none;
+      margin-top: 10px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: var(--text-sm);
+      font-weight: 600;
+      text-align: left;
+    }
+
+    .status-msg.show {
+      display: block;
+    }
+
+    .status-msg.success {
+      background: rgba(34, 197, 94, 0.12);
+      color: var(--good);
+    }
+
+    .status-msg.error {
+      background: rgba(239, 68, 68, 0.12);
+      color: var(--bad);
+    }
+
+    .status-msg.info {
+      background: rgba(100, 116, 139, 0.12);
+      color: var(--neutral);
+    }
+
+    .tab-content {
+      padding-top: var(--space-1);
+    }
+
+    .tab-pane {
+      display: none;
+      padding-top: 4px;
+    }
+
+    .tab-pane.active {
+      display: block;
+    }
+
+    .tab-pane > h4,
+    .tab-pane > .network-panel > h4 {
+      margin: 0 0 var(--space-4);
+      font-size: var(--text-xl);
+      font-weight: 700;
+    }
+
+    .row {
+      margin-left: -8px;
+      margin-right: -8px;
+    }
+
+    .col-md-6 {
+      padding-left: 8px;
+      padding-right: 8px;
+    }
+
+    #calibrate .col-md-6,
+    #vehicle .col-md-6 {
+      margin-bottom: var(--space-5);
+    }
+
+    .tab-pane > form,
+    .tab-pane > .network-panel,
+    .tab-pane > .form-group,
+    .tab-pane .row,
+    .tab-pane .control-row,
+    .tab-pane .text-center {
+      margin-top: 0;
+      margin-bottom: 0;
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0 0 var(--space-4);
+      font-size: var(--text-lg);
+    }
+
+    .table td {
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border-faint);
+      vertical-align: middle;
+    }
+
+    .table td:last-child {
+      text-align: right;
+    }
+
+    .wifi-status {
+      display: inline-block;
+      min-width: 118px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      text-align: center;
+      letter-spacing: 0.02em;
+    }
+
+    .wifi-status.good {
+      background: rgba(34, 197, 94, 0.12);
+      color: var(--good);
+    }
+
+    .wifi-status.warn {
+      background: rgba(245, 158, 11, 0.12);
+      color: var(--warn);
+    }
+
+    .wifi-status.bad {
+      background: rgba(239, 68, 68, 0.12);
+      color: var(--bad);
+    }
+
+    .wifi-status.neutral {
+      background: rgba(100, 116, 139, 0.12);
+      color: var(--neutral);
+    }
+
+    .form-group {
+      margin-bottom: var(--space-3);
+    }
+
+    .tab-pane .form-group {
+      margin-bottom: var(--space-3);
+    }
+
+    .form-control {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 10px 12px;
+      border: 1px solid var(--input-border);
+      border-radius: 8px;
+      background: var(--input-bg);
+      font-size: var(--text-md);
+      color: var(--input-text);
+    }
+
+    .form-control:focus {
+      outline: none;
+      border-color: var(--focus);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+    }
+
+    .grey-text {
+      display: block;
+      margin-bottom: var(--space-1);
+      font-size: var(--text-lg);
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .btn {
+      display: inline-block;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 10px 16px;
+      border: 0;
+      border-radius: 8px;
+      background: #1f6feb;
+      color: white;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+    }
+
+    .btn:hover {
+      background: #1557c0;
+      color: white;
+      text-decoration: none;
+    }
+
+    .inline-check-label {
+      font-size: 14px;
+      display: inline;
+      vertical-align: middle;
+    }
+
+    .button-row {
+      padding-top: 10px;
+    }
+
+    .control-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      align-items: stretch;
+      margin: 0;
+    }
+
+    .control-block {
+      display: block;
+    }
+
+    .update-link {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      margin-top: 8px;
+    }
+
+    .network-panel {
+      margin: 0;
+    }
+
+    .panel-group,
+    .panel,
+    .panel-heading,
+    .panel-body,
+    .panel-collapse {
+      all: revert;
+    }
+
+    #network .panel {
+      border: 1px solid var(--border-soft);
+      border-radius: 10px;
+      background: var(--panel-bg);
+      overflow: hidden;
+    }
+
+    #network .panel-heading {
+      background: var(--panel-head);
+      border-bottom: 1px solid var(--border-soft);
+      padding: 12px 16px;
+    }
+
+    #network .panel-title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    #network .panel-body {
+      padding: 16px;
+    }
+
+    .static-network-settings {
+      display: none;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border-faint);
+    }
+
+    .require {
+      color: #d14343;
+      font-weight: 700;
+    }
+
+    input[type="checkbox"] {
+      margin-right: 6px;
+    }
+
+    label {
+      font-weight: 500;
+    }
+
+    p {
+      margin: 0 0 12px;
+    }
+
+    .text-center {
+      text-align: center;
+    }
+
+    .action-note {
+      margin-top: 10px;
+      margin-bottom: 0;
+      font-size: 12px;
+    }
+
+    .helper-text {
+      font-size: 12px;
+      color: var(--helper);
+      margin: 0 0 var(--space-2);
+    }
+
+    .small-red-note {
+      color: var(--note);
+      font-size: 12px;
+      text-align: center;
+      margin: 0;
+    }
+
+    .small-red-left {
+      color: var(--note);
+      font-size: 12px;
+      text-align: left;
+      margin: 0;
+    }
+
+    @media (max-width: 640px) {
+      .main-box {
+        padding: 14px;
+      }
+
+      .setup-tabs {
+        display: block;
+      }
+
+      .setup-tabs li {
+        margin-bottom: 8px;
+      }
+
+      .setup-tabs a {
+        border-radius: 8px;
+        border: 1px solid var(--border);
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class=main-box>
+    <div id="defaultPassWarning" class="default-pass-warning">
+      The Access Point is still using the default password. Change it under Access Point Configuration on the Status tab, then reboot.
+    </div>
+    <ul class="setup-tabs">
+      <li class=active>
+        <a href=#status> <img src=images/status.png alt>Status</a>
+      </li>
+      <li>
+        <a href=#espnow> <img src=images/radio.png alt>Receiver</a>
+      </li>
+      <li>
+        <a href=#calibrate> <img src=images/calibrate.png alt>Calibration</a>
+      </li>
+      <li>
+        <a href=#other> <img src=images/other.png alt>Other</a>
+      </li>
+    </ul>
+    <div class=tab-content>
+      <div id=status class="tab-pane fade in active">
+        <table class=table>
+          <tbody>
+            <tr>
+              <td class=border-none>Device MAC</td>
+              <td class=text-right id="txtmac"></td>
+            </tr>
+            <tr>
+              <td>Access Point IP</td>
+              <td class=text-right id="txtmyip"> </td>
+            </tr>
+          </tbody>
+        </table>
+        <h4>Access Point Configuration</h4>
+        <form>
+          <div class=form-group>
+            <span class="grey-text font-weight-light"> AP Name</span>
+            <input type="text" id="txtssid" class="form-control" placeholder="SSID" value="">
+          </div>
+          <div class=form-group>
+            <span class="grey-text font-weight-light">AP IP</span>
+            <input type="text" id="txtaplan" class="form-control" placeholder="IP Address" value="">
+          </div>
+          <div class=form-group>
+            <span class="grey-text font-weight-light">AP Password &nbsp;&nbsp;</span>
+            <input type="checkbox" onclick="Gateway_passFunction()" id="apPassCheckbox">      
+            <label for="apPassCheckbox" class="inline-check-label"> Show Password</label>
+            <input type="password" id="txtpass" class="form-control" placeholder="Password">
+          </div>
+          <div class=text-center>
+            <button class="btn btn-block" type="button" id="apply_btn" title=Apply>Apply</button>
+            <div class="status-msg" id="msg-ap" role="status" aria-live="polite"></div>
+          </div>
+          <p class="small-red-note" style="margin-top: 10px;">After pressing Apply, press the Reboot button on the Other tab to activate changes.</p>
+        </form>
+      </div>
+      <div id=espnow class="tab-pane fade">
+        <form>
+          <div class=form-group>
+            <span class="grey-text font-weight-light">Receiver MAC Address</span>
+            <p class="helper-text">(Format: AA:BB:CC:DD:EE:FF)</p>
+            <input type="text" id="txtreceiverMac" class="form-control" placeholder="AA:BB:CC:DD:EE:FF" value="">
+          </div>
+          <div class=text-center>
+            <button class="btn btn-block" type="button" id="receiver_btn" title=Apply>Apply</button>
+            <div class="status-msg" id="msg-receiver" role="status" aria-live="polite"></div>
+          </div>
+        </form>
+        
+        <div style="margin-top: 40px;">
+          <span class="grey-text font-weight-light">Status</span>
+        </div>
+        <table class=table>
+          <tbody>
+            <tr>
+              <td>Last Send Time</td>
+              <td class=text-right id="lastSendTime">-</td>
+            </tr>
+            <tr>
+              <td>Last Send Status</td>
+              <td class=text-right id="lastSendStatus">-</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div id=calibrate class="tab-pane fade">
+        <div class=form-group>
+          <div class=row>
+            <div class="col-md-6">
+              <span class="grey-text font-weight-light">Filter Alpha (Smoothing)</span>
+              <p class="helper-text">(0.01 = heavy smoothing, 0.9 = light smoothing)</p>
+              <input type="number" step="0.01" min="0.01" max="0.99" id="filterAlpha" class="form-control" placeholder="0.10" value="">
+            </div>
+            <div class="col-md-6">
+              <span class="grey-text font-weight-light">Distance Offset (cm)</span>
+              <p class="helper-text">(+/- offset to account for sensor mounting height)</p>
+              <input type="number" step="0.1" id="distanceOffset" class="form-control" placeholder="0.0" value="">
+            </div>
+          </div>
+          <div class="text-center button-row">
+            <button class="btn btn-block" type="button" id="cal_btn" title=Apply>Apply</button>
+            <div class="status-msg" id="msg-calibrate" role="status" aria-live="polite"></div>
+          </div>
+        </div>
+      </div>
+      <div id=other class="tab-pane fade">
+        <div class=form-group>
+          <div class="control-row">
+            <div class="control-block">
+              <button class="btn btn-block" type="button" id="reboot_btn" title=Reboot>Reboot</button>
+              <div class="status-msg" id="msg-reboot" role="status" aria-live="polite"></div>
+            </div>
+            <div class="control-block">
+              <button class="btn btn-block" type="button" id="reset_btn" title=Reset>Reset</button>
+              <p class="small-red-note" style="margin-top: 8px; margin-bottom: 0;">Reset AP to defaults</p>
+              <div class="status-msg" id="msg-reset" role="status" aria-live="polite"></div>
+            </div>
+          </div>
+
+          <div style="margin-top: 20px;">
+            <p class="small-red-left">Version:  <span id="txtver"></span></p>
+            <a href="./update" class="btn btn-block update-link">Update Firmware / File System Upload</a>
+            <p class="small-red-note" style="margin-top: 8px;">Firmware Updates:  Username = AP SSID, Password = AP Password</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script type="text/javascript">
+    var mainResponse = {};
+
+    // Vanilla JS helpers
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => document.querySelectorAll(sel);
+
+    const setText = (id, text) => {
+      const el = $(`#${id}`);
+      if (el) el.textContent = text;
+    };
+
+    const getValue = (id) => {
+      const el = $(`#${id}`);
+      return el ? el.value : '';
+    };
+
+    const setValue = (id, value) => {
+      const el = $(`#${id}`);
+      if (el) el.value = value;
+    };
+
+    function setActiveTab(tabId) {
+      $$('.setup-tabs li').forEach(el => el.classList.remove('active'));
+      $$('.tab-pane').forEach(el => el.classList.remove('active'));
+      const link = $(`a[href='#${tabId}']`);
+      if (link) {
+        link.parentElement.classList.add('active');
+      }
+      const pane = $(`#${tabId}`);
+      if (pane) pane.classList.add('active');
+    }
+
+    $$('.setup-tabs a').forEach(link => {
+      link.addEventListener('click', (event) => {
+        event.preventDefault();
+        const href = link.getAttribute('href');
+        if (href) setActiveTab(href.replace('#', ''));
+      });
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+      fetch("/setupData")
+        .then(r => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
+        })
+        .then(response => {
+          setText('txtver', response.ver);
+          
+          const warning = $('#defaultPassWarning');
+          if (warning) warning.style.display = response.default_pass ? 'block' : 'none';
+          
+          setText('txtmyip', response.myIP);
+          
+          setValue('txtssid', response.apname);
+          setValue('txtaplan', response.myIP);
+          setValue('filterAlpha', response.alpha);
+          setValue('distanceOffset', response.distance_offset);
+          setValue('txtreceiverMac', response.receiver_mac || '');
+
+          setText('txtmac', response.MAC);
+          
+          mainResponse = response;
+        })
+        .catch(err => console.error('Failed to load setup data:', err));
+
+      setupClickHandlers();
+      
+      // Poll ESP-NOW status every 500ms
+      setInterval(() => {
+        fetch("/espNowStatus")
+          .then(r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+          })
+          .then(response => {
+            setText('lastSendTime', response.lastSendTime + ' ms');
+            setText('lastSendStatus', response.lastSendSuccess ? 'Success' : 'Failed');
+          })
+          .catch(err => console.error('Failed to load ESP-NOW status:', err));
+      }, 500);
+    });
+
+    function setupClickHandlers() {
+      document.addEventListener('click', (e) => {
+        if (e.target.id === 'apply_btn') {
+          const apData = {
+            txtaplan: getValue('txtaplan'),
+            txtssid: getValue('txtssid'),
+            txtpass: getValue('txtpass')
+          };
+          
+          fetch("/applyBtnFunction", {
+            method: 'POST',
+            body: new URLSearchParams(apData)
+          })
+          .then(r => {
+            if (!r.ok) throw new Error('AP settings request failed');
+            return r.text();
+          })
+          .then(response => {
+            if (response == "ok") {
+              showMessage("msg-ap", "Saved. Reboot the device from the Other tab to apply the new access point settings.", "success");
+            }
+          })
+          .catch(err => showMessage("msg-ap", "Could not save access point settings.", "error"));
+        }
+        
+        if (e.target.id === 'cal_btn') {
+          const alpha = getValue('filterAlpha');
+          const distance_offset = getValue('distanceOffset');
+
+          const validations = [
+            ['filterAlpha', Number(alpha), isFinite(Number(alpha)) && alpha.trim() !== "" && Number(alpha) > 0 && Number(alpha) < 1, "Filter alpha must be a number greater than 0 and less than 1."],
+            ['distanceOffset', Number(distance_offset), distance_offset.trim() !== "" && isFinite(Number(distance_offset)), "Distance offset must be a valid number."]
+          ];
+
+          for (const [fieldId, , isValid, errMsg] of validations) {
+            if (!isValid) {
+              showMessage("msg-calibrate", errMsg, "error");
+              const el = $(`#${fieldId}`);
+              if (el) el.focus();
+              return;
+            }
+          }
+
+          const params = new URLSearchParams({
+            alpha, distance_offset
+          });
+
+          fetch(`/applyOffsetFunction?${params}`)
+            .then(r => {
+              if (!r.ok) throw new Error('Calibration request failed');
+              return r.text();
+            })
+            .then(response => {
+              if (response == "ok") {
+                showMessage("msg-calibrate", "Calibration values applied.", "success");
+              }
+            })
+            .catch(err => showMessage("msg-calibrate", "Could not apply calibration values.", "error"));
+        }
+        
+        if (e.target.id === 'receiver_btn') {
+          const receiver_mac = getValue('txtreceiverMac').trim();
+          
+          if (receiver_mac.length === 0) {
+            showMessage("msg-receiver", "MAC address cannot be empty.", "error");
+            return;
+          }
+          
+          // Validate MAC address format (AA:BB:CC:DD:EE:FF)
+          const macRegex = /^([0-9a-fA-F]{2}:){5}([0-9a-fA-F]{2})$/;
+          if (!macRegex.test(receiver_mac)) {
+            showMessage("msg-receiver", "Invalid MAC address format. Use: AA:BB:CC:DD:EE:FF", "error");
+            return;
+          }
+          
+          fetch("/setReceiverMac", {
+            method: 'POST',
+            body: new URLSearchParams({ receiver_mac })
+          })
+          .then(r => {
+            if (!r.ok) throw new Error('Receiver MAC request failed');
+            return r.text();
+          })
+          .then(response => {
+            if (response == "ok") {
+              showMessage("msg-receiver", "Receiver MAC address saved. Device is now transmitting.", "success");
+            }
+          })
+          .catch(err => showMessage("msg-receiver", "Could not save receiver MAC address.", "error"));
+        }
+        
+        if (e.target.id === 'reboot_btn') {
+          fetch("/rebootBtnFunction", {
+            method: 'POST',
+            body: new URLSearchParams({ reboot_btn: "reboot_device" })
+          })
+          .then(r => {
+            if (!r.ok) throw new Error('Reboot request failed');
+            return r.text();
+          })
+          .then(response => {
+            if (response == "ok") {
+              showMessage("msg-reboot", "Restarting in 5 seconds.", "success");
+            }
+          })
+          .catch(() => showMessage("msg-reboot", "Could not restart the device. Please try again.", "error"));
+        }
+        
+        if (e.target.id === 'reset_btn') {
+          fetch("/resetBtnFunction", {
+            method: 'POST',
+            body: new URLSearchParams({ reset_btn: "reset_device" })
+          })
+          .then(r => {
+            if (!r.ok) throw new Error('Reset request failed');
+            return r.text();
+          })
+          .then(response => {
+            if (response == "ok") {
+              showMessage("msg-reset", "Settings reset. Reboot the device to apply defaults.", "success");
+            }
+          })
+          .catch(() => showMessage("msg-reset", "Could not reset settings. Please try again.", "error"));
+        }
+      });
+    }
+
+    const msgTimers = {};
+    function showMessage(id, text, type) {
+      const el = $(`#${id}`);
+      if (!el) return;
+      
+      clearTimeout(msgTimers[id]);
+      el.textContent = text;
+      el.classList.remove("success", "error", "info");
+      el.classList.add("show", type);
+      
+      if (type === "success") {
+        msgTimers[id] = setTimeout(() => el.classList.remove("show"), 6000);
+      }
+    }
+
+    function Gateway_passFunction() {
+      const x = document.getElementById("txtpass");
+      if (x) x.type = x.type === "password" ? "text" : "password";
+    }
+
+  </script>
+</body>
+
+</html>

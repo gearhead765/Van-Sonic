@@ -1,15 +1,6 @@
-#include <SoftwareSerial.h>
-
-SoftwareSerial mySerial(11, 10);  // RX, TX
-
 const uint8_t HEADER_BYTE = 0xFF;
 const uint16_t READ_TIMEOUT_MS = 200;
 const int ERROR_DISTANCE = -1;  // Error return value
-
-void setup() {
-  Serial.begin(115200);
-  mySerial.begin(9600);
-}
 
 void loop() {
   Serial.print("distance=");

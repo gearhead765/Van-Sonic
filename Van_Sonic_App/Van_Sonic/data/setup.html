@@ -528,6 +528,25 @@
             <input type="text" id="txtaplan" class="form-control" placeholder="IP Address" value="">
           </div>
           <div class=form-group>
+            <span class="grey-text font-weight-light">WiFi Channel</span>
+            <p class="helper-text">(Must match the receiver's channel)</p>
+            <select id="selWifiChannel" class="form-control">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+              <option value="7">7</option>
+              <option value="8">8</option>
+              <option value="9">9</option>
+              <option value="10">10</option>
+              <option value="11">11</option>
+              <option value="12">12</option>
+              <option value="13">13</option>
+            </select>
+          </div>
+          <div class=form-group>
             <span class="grey-text font-weight-light">AP Password &nbsp;&nbsp;</span>
             <input type="checkbox" onclick="Gateway_passFunction()" id="apPassCheckbox">      
             <label for="apPassCheckbox" class="inline-check-label"> Show Password</label>
@@ -571,16 +590,27 @@
       </div>
       <div id=calibrate class="tab-pane fade">
         <div class=form-group>
+          <span class="grey-text font-weight-light">Units</span>
+          <div>
+            <input type="radio" name="units" id="unitsCm" value="cm" checked>
+            <label for="unitsCm" class="inline-check-label"> cm</label>
+            &nbsp;&nbsp;
+            <input type="radio" name="units" id="unitsIn" value="in">
+            <label for="unitsIn" class="inline-check-label"> inch</label>
+            &nbsp;&nbsp;
+            <input type="radio" name="units" id="unitsM" value="m">
+            <label for="unitsM" class="inline-check-label"> m</label>
+            &nbsp;&nbsp;
+            <input type="radio" name="units" id="unitsFt" value="ft">
+            <label for="unitsFt" class="inline-check-label"> ft</label>
+          </div>
+        </div>
+        <div class=form-group>
           <div class=row>
-            <div class="col-md-6">
-              <span class="grey-text font-weight-light">Filter Alpha (Smoothing)</span>
-              <p class="helper-text">(0.01 = heavy smoothing, 0.9 = light smoothing)</p>
-              <input type="number" step="0.01" min="0.01" max="0.99" id="filterAlpha" class="form-control" placeholder="0.10" value="">
-            </div>
-            <div class="col-md-6">
-              <span class="grey-text font-weight-light">Distance Offset (cm)</span>
+            <div class="col-md-12">
+              <span class="grey-text font-weight-light">Distance Offset (<span id="offsetUnits">cm</span>)</span>
               <p class="helper-text">(+/- offset to account for sensor mounting height)</p>
-              <input type="number" step="0.1" id="distanceOffset" class="form-control" placeholder="0.0" value="">
+              <input type="number" step="any" id="distanceOffset" class="form-control" placeholder="0.0" value="">
             </div>
           </div>
           <div class="text-center button-row">
@@ -614,6 +644,8 @@
   </div>
   <script type="text/javascript">
     var mainResponse = {};
+    const unitMillimeters = { cm: 10, in: 25.4, m: 1000, ft: 304.8 };
+    let selectedUnits = 'cm';
 
     // Vanilla JS helpers
     const $ = (sel) => document.querySelector(sel);
@@ -669,9 +701,10 @@
           
           setValue('txtssid', response.apname);
           setValue('txtaplan', response.myIP);
-          setValue('filterAlpha', response.alpha);
           setValue('distanceOffset', response.distance_offset);
+          setUnits(response.units);
           setValue('txtreceiverMac', response.receiver_mac || '');
+          setValue('selWifiChannel', String(response.wifi_channel || 1));
 
           setText('txtmac', response.MAC);
           
@@ -696,13 +729,47 @@
       }, 500);
     });
 
+    function getUnits() {
+      const el = $('input[name="units"]:checked');
+      return el ? el.value : 'cm';
+    }
+
+    function setUnits(units) {
+      if (!Object.prototype.hasOwnProperty.call(unitMillimeters, units)) units = 'cm';
+      const el = $(`input[name="units"][value="${units}"]`);
+      if (el) el.checked = true;
+      selectedUnits = units;
+      setText('offsetUnits', units === 'in' ? 'inch' : units);
+    }
+
+    // Keep the offset field physically equivalent when the units change
+    $$('input[name="units"]').forEach(radio => {
+      radio.addEventListener('change', () => {
+        const units = getUnits();
+        const offset = getValue('distanceOffset').trim();
+        if (offset !== '' && isFinite(Number(offset))) {
+          const converted = Number(offset) * unitMillimeters[selectedUnits] / unitMillimeters[units];
+          setValue('distanceOffset', String(Number(converted.toFixed(6))));
+        }
+        setUnits(units);
+      });
+    });
+
     function setupClickHandlers() {
       document.addEventListener('click', (e) => {
         if (e.target.id === 'apply_btn') {
+          const wifi_channel = getValue('selWifiChannel');
+          const channelNum = Number(wifi_channel);
+          if (!Number.isInteger(channelNum) || channelNum < 1 || channelNum > 13) {
+            showMessage("msg-ap", "WiFi channel must be a whole number from 1 to 13.", "error");
+            return;
+          }
+
           const apData = {
             txtaplan: getValue('txtaplan'),
             txtssid: getValue('txtssid'),
-            txtpass: getValue('txtpass')
+            txtpass: getValue('txtpass'),
+            wifi_channel
           };
           
           fetch("/applyBtnFunction", {
@@ -722,11 +789,9 @@
         }
         
         if (e.target.id === 'cal_btn') {
-          const alpha = getValue('filterAlpha');
           const distance_offset = getValue('distanceOffset');
 
           const validations = [
-            ['filterAlpha', Number(alpha), isFinite(Number(alpha)) && alpha.trim() !== "" && Number(alpha) > 0 && Number(alpha) < 1, "Filter alpha must be a number greater than 0 and less than 1."],
             ['distanceOffset', Number(distance_offset), distance_offset.trim() !== "" && isFinite(Number(distance_offset)), "Distance offset must be a valid number."]
           ];
 
@@ -740,7 +805,7 @@
           }
 
           const params = new URLSearchParams({
-            alpha, distance_offset
+            distance_offset, units: getUnits()
           });
 
           fetch(`/applyOffsetFunction?${params}`)

@@ -11,6 +11,10 @@
     If you forget your AP credentials, you can recover the defaults by holding down
     the boot button on the ESP32 for a 5 seconds during startup.
 
+    The WiFi channel setting on the setup.html status tab, and the Receiver MAC address
+    muust match the WiFi channel and MAC address reported in the Van_Level app setup page.
+    If these values do not match, then the ESP-Now radio communication will fail.
+
    Over The Air updates are handled by ElegantOTA https://github.com/ayushsharma82/ElegantOTA.
 
     Firmware OTA updates:
@@ -66,14 +70,13 @@ JSONVar configJSON;
 Preferences preferences;
 
 // Calibration variables - reasonable defaults here, configurable on setup page
-float distanceOffset = 0.0f;  // offset in cm to account for sensor mounting position
+float distanceOffset = 0.0f;  // offset in the selected units to account for sensor mounting position
 
 // Timer variables
 unsigned long bootStart = 0;  // if non-zero, will restart when bootStart + bootDelay = now
 const unsigned long bootDelay = 5000;
 unsigned long lastWebTime = 0;      // sensor data webpage push
-const unsigned long ESPDelay = 500; // publish readings every half-second
-unsigned long lastSensorReadTime = 0;
+const unsigned long ESPDelay = 100;
 
 // Webserver pieces
 AsyncWebServer server(80);
@@ -83,80 +86,62 @@ AsyncEventSource events("/events");
 
 // A02YYUW Ultrasonic Distance Sensor
 const uint8_t HEADER_BYTE = 0xFF;
-const uint16_t READ_TIMEOUT_MS = 200;
-const int16_t ERROR_DISTANCE = -1;
 const uint8_t SENSOR_ID = 1;
-#define RX_PIN D7
-#define TX_PIN D6
+#define RX_PIN D7  // White Wire
+#define TX_PIN D6  // Yellow Wire
 
 // ESP-NOW configuration
+enum DistanceUnits : uint8_t {
+  UNITS_CM = 0,
+  UNITS_INCH = 1,
+  UNITS_M = 2,
+  UNITS_FT = 3
+};
+
+const char* DISTANCE_UNIT_NAMES[] = {"cm", "in", "m", "ft"};
+const float MILLIMETERS_PER_UNIT[] = {10.0f, 25.4f, 1000.0f, 304.8f};
+uint8_t distanceUnits = UNITS_CM;
+
 typedef struct {
-  int16_t distance;
   uint8_t id;
+  uint8_t units;    // DistanceUnits
+  int16_t distance; // tenths of the selected unit (e.g. 1234 = 123.4)
 } EspNowMessage;
 
 uint8_t receiverMacAddress[6] = {0, 0, 0, 0, 0, 0};
 String receiverMacStr = "";
+
+// WiFi channel for the SoftAP and ESP-NOW; receiver must be on the same channel
+const uint8_t WIFI_CHANNEL_MIN = 1;
+const uint8_t WIFI_CHANNEL_MAX = 13;
+uint8_t wifiChannel = 1;
 volatile bool lastSendSuccess = false;
 unsigned long lastSendTime = 0;
 
-// Distance filtering (Exponential Moving Average)
-float filteredDistance = 0.0f;
-float alpha = 0.1f; // setup configurable - 0.01 (heavy smoothing) and 0.9 (light smoothing)
+float latestDistance = 0.0f;
 
-// Read N bytes from Serial1 with timeout
-uint8_t readNBytes(uint8_t *buf, size_t len) {
-  size_t offset = 0, left = len;
-  uint8_t *buffer = buf;
-  long curr = millis();
-  while (left) {
-    if (Serial1.available()) {
-      buffer[offset] = Serial1.read();
-      offset++;
-      left--;
-    }
-    if (millis() - curr > READ_TIMEOUT_MS) {
-      break;
-    }
-  }
-  return offset;
-}
+bool updateSensorData() {
+  static uint8_t frame[4] = {};
+  static size_t frameLength = 0;
+  bool received = false;
 
-// Get distance data from the A02YYUW sensor
-// Returns distance in mm (non-negative) on success, -1 on failure
-int16_t getDistance(void) {
-  uint8_t data[4] = { 0 };
-  uint8_t receivedByte = 0;
-  unsigned long startTime = millis();
+  while (Serial1.available() > 0) {
+    uint8_t nextByte = (uint8_t)Serial1.read();
+    if (frameLength == 0 && nextByte != HEADER_BYTE) continue;
+    frame[frameLength++] = nextByte;
+    if (frameLength < sizeof(frame)) continue;
 
-  while (millis() - startTime < READ_TIMEOUT_MS) {
-    if (readNBytes(&receivedByte, 1) == 1 && receivedByte == HEADER_BYTE) {
-      data[0] = receivedByte;
-      if (readNBytes(&data[1], 3) == 3) {
-        uint8_t checksum = data[0] + data[1] + data[2];
-        if (checksum == data[3]) {
-          uint16_t distance = (data[1] << 8) | data[2];
-          DBG_PRINT("Distance: ");
-          DBG_PRINT(distance);
-          DBG_PRINTLN(" mm");
-          return distance;
-        }
-      }
+    uint8_t checksum = (uint8_t)(frame[0] + frame[1] + frame[2]);
+    if (frame[0] == HEADER_BYTE && checksum == frame[3]) {
+      latestDistance = (frame[1] << 8) | frame[2];
+      received = true;
+      frameLength = 0;
+    } else {
+      memmove(frame, frame + 1, sizeof(frame) - 1);
+      frameLength = sizeof(frame) - 1;
     }
   }
-  DBG_PRINTLN("Failed to get distance");
-  return ERROR_DISTANCE;
-}
-
-// Function to constantly poll the sensor and apply the EMA filter
-void updateSensorData() {
-  int16_t rawDistance = getDistance();
-  
-  if (rawDistance >= 0) {
-    // valid reading - apply EMA filter
-    filteredDistance = (alpha * rawDistance) + ((1.0f - alpha) * filteredDistance);
-  }
-  // invalid reading - reject and keep previous filtered value
+  return received;
 }
 
 // True only if the whole string is a finite number
@@ -168,6 +153,18 @@ bool parseStrictFloat(const String &s, float &out) {
   float v = strtof(t.c_str(), &end);
   if (*end != '\0' || !isfinite(v)) return false;
   out = v;
+  return true;
+}
+
+// True only if the whole string is a valid WiFi channel number
+bool parseWifiChannel(const String &s, uint8_t &out) {
+  String t = s;
+  t.trim();
+  if (t.length() == 0) return false;
+  char *end;
+  long v = strtol(t.c_str(), &end, 10);
+  if (*end != '\0' || v < WIFI_CHANNEL_MIN || v > WIFI_CHANNEL_MAX) return false;
+  out = (uint8_t)v;
   return true;
 }
 
@@ -213,6 +210,7 @@ bool parseMacAddress(const String &macStr, uint8_t *mac) {
 // Initialize ESP-NOW
 void initEspNow() {
   WiFi.mode(WIFI_AP);
+  WiFi.setSleep(false);
   
   if (esp_now_init() != ESP_OK) {
     DBG_PRINTLN("ESP-NOW initialization failed");
@@ -225,6 +223,7 @@ void initEspNow() {
     esp_now_peer_info_t peerInfo = {};
     memcpy(peerInfo.peer_addr, receiverMacAddress, 6);
     peerInfo.channel = 0;
+    peerInfo.ifidx = WIFI_IF_AP;
     peerInfo.encrypt = false;
     
     if (esp_now_add_peer(&peerInfo) != ESP_OK) {
@@ -315,14 +314,13 @@ void setup() {
     preferences.clear();
   }
 
-  // retrieve EEPROM sensor filter and offset values
-  alpha = preferences.getFloat("alpha", alpha);
   distanceOffset = preferences.getFloat("distanceOffset", distanceOffset);
+  distanceUnits = preferences.getUChar("distanceUnits", preferences.getBool("useInches", false) ? UNITS_INCH : UNITS_CM);
+  if (distanceUnits > UNITS_FT) distanceUnits = UNITS_CM;
   
-  DBG_PRINT("Retrieved Filter Alpha: ");
-  DBG_PRINT(alpha);
-  DBG_PRINT(" Distance Offset: ");
-  DBG_PRINTLN(distanceOffset);
+  DBG_PRINT("Retrieved Distance Offset: ");
+  DBG_PRINT(distanceOffset);
+  DBG_PRINTLN(DISTANCE_UNIT_NAMES[distanceUnits]);
 
   // retrieve EEPROM ESP-NOW receiver MAC address
   receiverMacStr = preferences.getString("receiverMac", "");
@@ -332,6 +330,12 @@ void setup() {
   } else {
     DBG_PRINTLN("No receiver MAC configured yet");
   }
+
+  // retrieve EEPROM WiFi channel, falling back to default if out of range
+  wifiChannel = preferences.getUChar("wifiChannel", wifiChannel);
+  if (wifiChannel < WIFI_CHANNEL_MIN || wifiChannel > WIFI_CHANNEL_MAX) wifiChannel = 1;
+  DBG_PRINT("WiFi Channel: ");
+  DBG_PRINTLN(wifiChannel);
 
   // retrieve EEPROM AP configuration
   esid = preferences.getString("AP_SSID", "");
@@ -367,7 +371,7 @@ void setup() {
   WiFi.onEvent(WiFiEvent);
   WiFi.mode(WIFI_AP);
   WiFi.softAPsetHostname(esid.c_str());
-  if (!WiFi.softAP(esid.c_str(), epass.c_str(), 1, 0, 1))
+  if (!WiFi.softAP(esid.c_str(), epass.c_str(), wifiChannel, 0, 1))
   {
     Serial.println("SoftAP creation failed: Halting");
     while (1);
@@ -411,9 +415,10 @@ void setup() {
     data["ver"] = String(VERSION);
     data["myIP"] = myIP;
     data["apname"] = esid;
-    data["alpha"] = String(alpha, 3);
-    data["distance_offset"] = String(distanceOffset, 1);
+    data["distance_offset"] = String(distanceOffset, 6);
+    data["units"] = DISTANCE_UNIT_NAMES[distanceUnits];
     data["receiver_mac"] = receiverMacStr;
+    data["wifi_channel"] = (int)preferences.getUChar("wifiChannel", wifiChannel);
     data["MAC"] = WiFi.softAPmacAddress();
     request -> send(200, "application/json", JSON.stringify(data));
   });
@@ -431,12 +436,20 @@ void setup() {
   server.on("/applyBtnFunction", WebRequestMethod::HTTP_POST, [](AsyncWebServerRequest * request) {
     REQUIRE_AUTH(request);
     DBG_PRINTLN( "Assigning AP");
-    String txtssid, txtpass, txtaplan;
+    String txtssid, txtpass, txtaplan, newChannelStr;
     if (!getParamStr(request, "txtssid", true, txtssid) || !getParamStr(request, "txtpass", true, txtpass)
-        || !getParamStr(request, "txtaplan", true, txtaplan)) {
+        || !getParamStr(request, "txtaplan", true, txtaplan) || !getParamStr(request, "wifi_channel", true, newChannelStr)) {
       request -> send(400, "text/plain", "missing parameter");
       return;
     }
+    uint8_t newChannel;
+    if (!parseWifiChannel(newChannelStr, newChannel)) {
+      request -> send(400, "text/plain", "WiFi channel must be a whole number from 1 to 13.");
+      return;
+    }
+    preferences.putUChar("wifiChannel", newChannel);
+    DBG_PRINT("Writing WiFi Channel :: ");
+    DBG_PRINTLN(newChannel);
     if (txtssid.length() > 0) {
       preferences.putString("AP_SSID", txtssid);
       DBG_PRINT("Writing AP SSID :: ");
@@ -479,6 +492,7 @@ void setup() {
       return;
     }
 
+
     // Try to remove old peer if it exists
     if (receiverMacStr.length() > 0) {
       esp_now_del_peer(receiverMacAddress);
@@ -492,6 +506,7 @@ void setup() {
     esp_now_peer_info_t peerInfo = {};
     memcpy(peerInfo.peer_addr, receiverMacAddress, 6);
     peerInfo.channel = 0;
+    peerInfo.ifidx = WIFI_IF_AP;
     peerInfo.encrypt = false;
 
     if (esp_now_add_peer(&peerInfo) != ESP_OK) {
@@ -507,31 +522,33 @@ void setup() {
   server.on("/applyOffsetFunction", WebRequestMethod::HTTP_GET, [](AsyncWebServerRequest * request) {
     REQUIRE_AUTH(request);
     DBG_PRINTLN("Assigning Calibration values");
-    String sAlpha, sOffset;
-    if (!getParamStr(request, "alpha", false, sAlpha) || !getParamStr(request, "distance_offset", false, sOffset)) {
+    String sOffset, sUnits;
+    if (!getParamStr(request, "distance_offset", false, sOffset)
+        || !getParamStr(request, "units", false, sUnits)) {
       request -> send(400, "text/plain", "missing parameter");
       return;
     }
-
-    float newAlpha, newOffset;
-    if (!parseStrictFloat(sAlpha, newAlpha) || newAlpha <= 0.0f || newAlpha >= 1.0f) {
-      request -> send(400, "text/plain", "Filter alpha must be a number greater than 0 and less than 1.");
+    uint8_t newUnits = UNITS_CM;
+    while (newUnits <= UNITS_FT && sUnits != DISTANCE_UNIT_NAMES[newUnits]) ++newUnits;
+    if (newUnits > UNITS_FT) {
+      request -> send(400, "text/plain", "Units must be cm, in, m or ft.");
       return;
     }
+
+    float newOffset;
     if (!parseStrictFloat(sOffset, newOffset)) {
       request -> send(400, "text/plain", "Distance offset must be a number.");
       return;
     }
 
-    alpha = newAlpha;
     distanceOffset = newOffset;
-    preferences.putFloat("alpha", alpha);
+    distanceUnits = newUnits;
     preferences.putFloat("distanceOffset", distanceOffset);
+    preferences.putUChar("distanceUnits", distanceUnits);
     
-    DBG_PRINT("Calibration set - Alpha: ");
-    DBG_PRINT(alpha);
-    DBG_PRINT(" Distance Offset (cm): ");
-    DBG_PRINTLN(distanceOffset);
+    DBG_PRINT("Calibration set - Distance Offset: ");
+    DBG_PRINT(distanceOffset);
+    DBG_PRINTLN(DISTANCE_UNIT_NAMES[distanceUnits]);
     
     request -> send(200, "text/plain", "ok");
   });
@@ -587,27 +604,30 @@ void loop() {
     }
   }
   
-  // poll Ultrasonic sensor at the sensor bandwidth rate (~10Hz)
-  if ((millis() - lastSensorReadTime) >= READ_TIMEOUT_MS) {
-    updateSensorData();
-    lastSensorReadTime = millis();
-  }
+  updateSensorData();
   
-  // Send distance and ID via ESP-NOW every 500ms
   if ((millis() - lastWebTime) >= ESPDelay) {
     lastWebTime = millis();
     
     if (receiverMacStr.length() > 0) {
-      int16_t finalDistance = (int16_t)filteredDistance;
-      finalDistance = finalDistance + (int16_t)(distanceOffset * 10.0f);
+      // sensor reports mm; send tenths of the selected unit
+      const float mmPerUnit = MILLIMETERS_PER_UNIT[distanceUnits];
+      int16_t finalDistance = (int16_t)lroundf((latestDistance / mmPerUnit + distanceOffset) * 10.0f);
       
       EspNowMessage msg;
       msg.distance = finalDistance;
       msg.id = SENSOR_ID;
+      msg.units = distanceUnits;
       
       esp_err_t result = esp_now_send(receiverMacAddress, (uint8_t *)&msg, sizeof(msg));
       if (result != ESP_OK) {
-        DBG_PRINTLN("ESP-NOW send failed");
+        DBG_PRINTF("ESP-NOW send failed: %s (0x%X)\n", esp_err_to_name(result), (unsigned int)result);
+      } else {
+        DBG_PRINT("ESP_NOW: ");
+        DBG_PRINT(finalDistance / 10.0f);
+        DBG_PRINT(" ");
+        DBG_PRINT(DISTANCE_UNIT_NAMES[msg.units]);
+        DBG_PRINTLN("");
       }
     }
   }

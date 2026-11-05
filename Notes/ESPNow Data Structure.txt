@@ -1,5 +1,13 @@
-// ESP-NOW configuration
+// ESP-NOW message handling for distance sensors
+enum DistanceUnits : uint8_t {
+  UNITS_CM = 0,
+  UNITS_INCH = 1,
+  UNITS_M = 2,
+  UNITS_FT = 3
+};
+
 typedef struct {
-  int16_t distance;
   uint8_t id;
+  uint8_t units;
+  int16_t distance;
 } EspNowMessage;

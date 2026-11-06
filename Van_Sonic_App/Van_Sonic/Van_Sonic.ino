@@ -1,8 +1,8 @@
 /*******************************************************************************************
  Van Sonic
 
-    ESP32 application to read sensor data from an ultrasonic distance sensor and transmit
-    those reading using the ESP-NOW protocol to a ESP32 receiver app.
+    ESP32 application to read sensor data from an A02YYUW ultrasonic distance sensor
+    and transmit those readings using the ESP-NOW protocol to an ESP32 receiver app.
 
     The /setup page allows configuration of the Access Point, sensor calibration, and
     firmware updates.  Default AP credentials are located in the LittleFS data folder at
@@ -11,8 +11,8 @@
     If you forget your AP credentials, you can recover the defaults by holding down
     the boot button on the ESP32 for a 5 seconds during startup.
 
-    The WiFi channel setting on the setup.html status tab, and the Receiver MAC address
-    muust match the WiFi channel and MAC address reported in the Van_Level app setup page.
+    The WiFi channel setting on the setup.html status tab, and the Receiver MAC address,
+    must match the WiFi channel and MAC address reported in the Van_Level app setup page.
     If these values do not match, then the ESP-Now radio communication will fail.
 
    Over The Air updates are handled by ElegantOTA https://github.com/ayushsharma82/ElegantOTA.
@@ -32,7 +32,7 @@
       see the .littlefs.bin file location.  Probably in "C:\Users\<username>\AppData\Local\Temp\".
 
 *******************************************************************************************/
-const char* VERSION = "1.0.0";
+const char* VERSION = "1.0.0a";
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -75,20 +75,20 @@ float distanceOffset = 0.0f;  // offset in the selected units to account for sen
 // Timer variables
 unsigned long bootStart = 0;  // if non-zero, will restart when bootStart + bootDelay = now
 const unsigned long bootDelay = 5000;
-unsigned long lastWebTime = 0;      // sensor data webpage push
+unsigned long lastPushTime = 0;      // sensor data ESP-NOW push
 const unsigned long ESPDelay = 100;
 
 // Webserver pieces
 AsyncWebServer server(80);
 AsyncEventSource events("/events");
 
-// The AP stays up at all times so setup is always reachable.
+// Three available sensor zones in Van Level app.
+const uint8_t SENSOR_ID = 1;  // Behind Driver Side rear wheels
 
 // A02YYUW Ultrasonic Distance Sensor
 const uint8_t HEADER_BYTE = 0xFF;
-const uint8_t SENSOR_ID = 1;
-#define RX_PIN D7  // White Wire
-#define TX_PIN D6  // Yellow Wire
+#define RX_PIN D7  // Xiao ESP32S3 pin / White Wire A02YYUW
+#define TX_PIN D6  // Xiao ESP32S3 pin / Yellow Wire A02YYUW
 
 // ESP-NOW configuration
 enum DistanceUnits : uint8_t {
@@ -98,15 +98,15 @@ enum DistanceUnits : uint8_t {
   UNITS_FT = 3
 };
 
-const char* DISTANCE_UNIT_NAMES[] = {"cm", "in", "m", "ft"};
-const float MILLIMETERS_PER_UNIT[] = {10.0f, 25.4f, 1000.0f, 304.8f};
-uint8_t distanceUnits = UNITS_CM;
-
 typedef struct {
   uint8_t id;
   uint8_t units;    // DistanceUnits
   int16_t distance; // tenths of the selected unit (e.g. 1234 = 123.4)
 } EspNowMessage;
+
+const char* DISTANCE_UNIT_NAMES[] = {"cm", "in", "m", "ft"};
+const float MILLIMETERS_PER_UNIT[] = {10.0f, 25.4f, 1000.0f, 304.8f};
+uint8_t distanceUnits = UNITS_CM;
 
 uint8_t receiverMacAddress[6] = {0, 0, 0, 0, 0, 0};
 String receiverMacStr = "";
@@ -118,19 +118,29 @@ uint8_t wifiChannel = 1;
 volatile bool lastSendSuccess = false;
 unsigned long lastSendTime = 0;
 
+// Latest sensor reading
 float latestDistance = 0.0f;
 
+// Read the latest distance value from the serial interface
+// Process everyting in the serial buffer returning only the most recent reading
+//   Each measurement frame consists of 4 bytes:
+//     • Byte 0 (0xFF): Header/Start byte.
+//     • Byte 1 (High Byte): Upper 8 bits of the distance value.
+//     • Byte 2 (Low Byte): Lower 8 bits of the distance value.
+//     • Byte 3 (Checksum): (Byte 0 + Byte 1 + Byte 2) & 0x00FF.
 bool updateSensorData() {
   static uint8_t frame[4] = {};
   static size_t frameLength = 0;
   bool received = false;
 
   while (Serial1.available() > 0) {
+    // grab the first full frame
     uint8_t nextByte = (uint8_t)Serial1.read();
     if (frameLength == 0 && nextByte != HEADER_BYTE) continue;
     frame[frameLength++] = nextByte;
     if (frameLength < sizeof(frame)) continue;
 
+    // if frame is valid, save the distance value
     uint8_t checksum = (uint8_t)(frame[0] + frame[1] + frame[2]);
     if (frame[0] == HEADER_BYTE && checksum == frame[3]) {
       latestDistance = (frame[1] << 8) | frame[2];
@@ -210,7 +220,7 @@ bool parseMacAddress(const String &macStr, uint8_t *mac) {
 // Initialize ESP-NOW
 void initEspNow() {
   WiFi.mode(WIFI_AP);
-  WiFi.setSleep(false);
+  WiFi.setSleep(false);  // power conservation messes up ESP-NOW
   
   if (esp_now_init() != ESP_OK) {
     DBG_PRINTLN("ESP-NOW initialization failed");
@@ -316,7 +326,7 @@ void setup() {
 
   distanceOffset = preferences.getFloat("distanceOffset", distanceOffset);
   distanceUnits = preferences.getUChar("distanceUnits", preferences.getBool("useInches", false) ? UNITS_INCH : UNITS_CM);
-  if (distanceUnits > UNITS_FT) distanceUnits = UNITS_CM;
+  if (distanceUnits != UNITS_CM && distanceUnits != UNITS_INCH) distanceUnits = UNITS_CM;
   
   DBG_PRINT("Retrieved Distance Offset: ");
   DBG_PRINT(distanceOffset);
@@ -389,10 +399,14 @@ void setup() {
   // Initialize ESP-NOW for distance data transmission
   initEspNow();
 
-  // HTML+JS+CSS+Images server callbacks
+  // HTML+Images server callbacks
   // handlers are evaluated in the order they are attached to the server.
   server.onNotFound([](AsyncWebServerRequest * request) {
     request -> send(404, "text/html", "<h1 align=\"center\">Oops! It's not here.</h1>");
+  });
+
+  server.on("/", WebRequestMethod::HTTP_GET, [](AsyncWebServerRequest * request) {
+    request -> redirect("/setup");
   });
 
   server.on("/setup", WebRequestMethod::HTTP_GET, [](AsyncWebServerRequest * request) {
@@ -529,9 +543,9 @@ void setup() {
       return;
     }
     uint8_t newUnits = UNITS_CM;
-    while (newUnits <= UNITS_FT && sUnits != DISTANCE_UNIT_NAMES[newUnits]) ++newUnits;
-    if (newUnits > UNITS_FT) {
-      request -> send(400, "text/plain", "Units must be cm, in, m or ft.");
+    while (newUnits <= UNITS_INCH && sUnits != DISTANCE_UNIT_NAMES[newUnits]) ++newUnits;
+    if (newUnits > UNITS_INCH) {
+      request -> send(400, "text/plain", "Units must be cm or in.");
       return;
     }
 
@@ -580,8 +594,7 @@ void setup() {
 
   // only these folders are public; APconfig.json and the HTML pages are not served from here
   server.serveStatic("/images", LittleFS, "/images");
-  server.serveStatic("/js", LittleFS, "/js");
-
+ 
   // setup our WiFi for AP mode only
   WiFi.mode(WIFI_AP);
 
@@ -606,8 +619,8 @@ void loop() {
   
   updateSensorData();
   
-  if ((millis() - lastWebTime) >= ESPDelay) {
-    lastWebTime = millis();
+  if ((millis() - lastPushTime) >= ESPDelay) {
+    lastPushTime = millis();
     
     if (receiverMacStr.length() > 0) {
       // sensor reports mm; send tenths of the selected unit

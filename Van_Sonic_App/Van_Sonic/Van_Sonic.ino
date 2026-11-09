@@ -87,7 +87,7 @@ const uint8_t SENSOR_ID = 1;  // Behind Driver Side rear wheels
 
 // A02YYUW Ultrasonic Distance Sensor
 const uint8_t HEADER_BYTE = 0xFF;
-#define RX_PIN D7  // Xiao ESP32S3 pin / White Wire A02YYUW
+#define RX_PIN D5  // Xiao ESP32S3 pin / White Wire A02YYUW
 #define TX_PIN D6  // Xiao ESP32S3 pin / Yellow Wire A02YYUW
 
 // ESP-NOW configuration

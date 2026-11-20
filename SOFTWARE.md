@@ -2,37 +2,63 @@
 
 ## Introduction
 
-This is an ESP32 application to read sensor data from an ultrasonic rangefinder and transmit is using the ESP-NOW protocol to a listener App.
-The listener app, Van_Level, displays the rangefinder information on its HTML-based user interface.
+This is an ESP32 application to read sensor data from an ultrasonic rangefinder and transmit is using the ESP-NOW protocol to a listener App. The listener app, [Van_Level](https://github.com/gearhead765/Van-Level), displays the rangefinder information on its HTML-based user interface.
 
-The `/setup` page allows configuration of the Access Point (default values are located in [data/APconfig.json](Van_Sonic_App/Van_Sonic/data/APconfig.json), ESP-NOW listener setup, sensor calibration, and firmware updates.
+The `/setup` page allows configuration of the access point, Wi-Fi network, ESP-NOW listener, sensor calibration, and firmware updates.
+
+On the Network tab, scan for your router, select its SSID, enter its WPA password (8-63 characters), and choose DHCP or static addressing. Apply saves the settings and starts connecting without a reboot. The Status tab shows the saved network, local IP, connection state, and current channel. The setup AP stays available while the station reconnects automatically, with another attempt every 10 seconds while disconnected.
+
+Connect `Van_Sonic` and `Van_Level` to the same 2.4 GHz access point/channel. ESP-NOW follows the current WiFi channel automatically. A shared SSID alone does not ensure matching channels on mesh or multi-AP networks. Keep the receiver MAC set to the STA MAC shown by Van_Level. Without a router connection, automatic channel alignment between the devices is not guaranteed.
 
 ## Setting up the Arduino Environment
 There are many great tutorials on the Web guiding your setup of the Arduino/ESP programming enviroment.  Among them are links to Rui & Sara Santos' [Random Nerd Tutorials](https://randomnerdtutorials.com/).  Their pages will give you the necessary background on installing the Arduino IDE, Boards, and Libraries.  If you are not already familiar with these items, I highly recommend giving their tutorials some attention.
 
 ### Necessary Libraries
- - [ESPAsyncWebServer](https://github.com/ESP32Async/ESPAsyncWebServer)
- - [AsyncTCP](https://github.com/ESP32Async/AsyncTCP)
- - [Arduino_JSON](https://github.com/arduino-libraries/Arduino_JSON)
- - [ElegantOTA](https://github.com/ayushsharma82/ElegantOTA)
- - [LittleFS[(https://github.com/littlefs-project/littlefs)
- 
+- [Arduino_JSON](https://github.com/arduino-libraries/Arduino_JSON)
+- [AsyncTCP](https://github.com/ESP32Async/AsyncTCP)
+- [ElegantOTA](https://github.com/ayushsharma82/ElegantOTA)  -  Note: Be sure to enable async mode in `ElegantOTA`.[^1]
+
+[^1]: Set ELEGANTOTA_USE_ASYNC_WEBSERVER to 1 in ElegantOTA.h (or via build flags) before compiling.
+
+- [ESPAsyncWebServer](https://github.com/ESP32Async/ESPAsyncWebServer)
+- [LittleFS](https://github.com/littlefs-project/littlefs)
+
 ### IDE Enhancements
 See the *Random Nerd Tutorial* above for installation instructions
  - [arduino-littlefs-upload](https://github.com/earlephilhower/arduino-littlefs-upload)
  
 ## The Van Sonic Program
-Our program sets up a local Access Point with the default SSID `VAN_SONIC` that we will use to configure the AP access.  We have a single event listener to watch for Access Point connection requests and limit to a single connection.
-
-The program actually begins in the `setup()` function where we start by setting up our local file system using LittleFS, and open the file [data/APconfig.json](Van_Level_App/Van_Level/data/APconfig.json) containing our default AP configuration information used to log into the captive Access Point.
+During `setup()`, the firmware mounts LittleFS for web pages and static assets. It uses saved access point settings when present; otherwise, it uses the SSID `VanSonic_nnnn` (the last four hexadecimal digits of the device's factory MAC address), password `12345678`, and IP address `192.168.4.1`.
 
 At this point in the setup process, there is a 3-second pause to allow the `Boot` button on the ESP board to be pressed.  If pressed, this will erase the saved preferences in EEPROM.  Useful if you have customized the AP information and subsequently forgotten it.
 
 Next, we retrieve our AP configuration and our calibration values from the ESP32's non-volatile EEPROM storage.  This storage area is retained across restarts and power loss.  If there are no saved values, default values are substituted.
 
-With the saved AP information retrieved, or default values substituted, we proceed to configure our HTML query handlers.  Our Web server has only a single configuration page that it delivers to the user; `/Setup`; stored in the [data/](Van_Sonic_App/Van_Sonic/data/) directory. There is a redirect configured to sent `/` requests to `/Setup`.  `Setup` is the page where we can modify the default AP SSID and password, configure the ESP-NO listener, and adjust our calibration values.
+With the saved AP information retrieved, or default values substituted, we configure our HTML query handlers. The authenticated `/setup` page is stored in the [data/](Van_Sonic_App/Van_Sonic/data/) directory. It configures AP credentials, router access, the ESP-NOW listener, and calibration. The server serves [index.html](Van_Sonic_App/Van_Sonic/data/index.html) from LittleFS at `/` and `/index.html`. Image serving and the `/events` event stream remain registered; the homepage polls `/readings` rather than using sensor events.
 
-With our handlers in place, we establish our AP server, and periodically push our distance data to the ESP-NOW listener.
+The homepage displays the current local time and the ultrasonic sensor's last successful reading, including its calibrated value, units, and reading time. A successful reading is a checksum-valid sensor frame, independent of ESP-NOW delivery. The last successful value remains available if the sensor stops reporting; readings are cleared at restart. Before the first reading, the page displays an empty state. The public, uncached `/readings` endpoint supplies a snapshot and its age using the ESP32's monotonic clock. The browser polls once per second and estimates the reading timestamp from that age and its own local clock, so no NTP connection is needed. During connection loss, the page retains its displayed readings and retries automatically.
+
+The UART is drained continuously with an independent frame buffer. The default sensor output rate is 10 Hz; ESP-NOW transmissions are limited to 150 ms and use the newest complete reading.  [ESPNow Data Structure](<Data/ESPNow Data Structure.txt>) describes the common data packet.
+
+- Sensor ID `1` uses Serial1: sensor TX to ESP32 `D5` (`RX_PIN`), sensor RX to `D6` (`TX_PIN`).
+  >pins were reassigned from [defaults](Notes/XIAO_ESP32-S3_front_pinout.png) to make PCB routing easier
+  
+  The sensor is supplied with +5V directly from the DC-DC converter. Change the pin definitions if your wiring differs. The selected ESP32 board must provide at least one UART in addition to the debug console.
+- Set the receiver MAC on `/setup` to match the MAC address of the Van-Level app.
+- Each measurement frame consists of 4 bytes:
+  >Byte 0 (0xFF): Header/Start byte.  
+  >Byte 1 (High Byte): Upper 8 bits of the distance value.  
+  >Byte 2 (Low Byte): Lower 8 bits of the distance value.  
+  >Byte 3 (Sum Check): Checksum calculated as (Byte 0 + Byte 1 + Byte 2) & 0x00FF.
+  
+- Communication Protocol: UART (TTL serial, 9600 bps baud rate, 8 data bits, no parity, 1 stop bit).
+- See [A02YYUW Datasheet](Notes/A02YYUW-Datasheet.pdf), [Output Info](Notes/A02YYUW_OutputInfo.md), and [sample Arduino code](Notes/ArduinoSampleCode.txt).
+
+Each sensor section also displays the latest ESP-NOW send result and the time of its last successful send. Results distinguish an unconfigured receiver, no sends yet, an initial send in progress, success, and failure. Success is recorded only when the ESP-NOW completion callback reports delivery, not when a packet is merely queued; immediate queue errors count as failures. 
+
+Later failures do not erase the last-success time. Sends are serialized until their completion callbacks arrive. Send timestamps use the same monotonic-age/browser-local-clock calculation as reading timestamps, and send history is cleared at restart. ESP-NOW delivery success is not confirmation that Van_Level processed the reading.
+
+With our handlers in place, we run in AP+STA mode, connect to the saved router, and periodically push distance data to the ESP-NOW listener.
  
 ## Programming the ESP32
 ### Initial Programming

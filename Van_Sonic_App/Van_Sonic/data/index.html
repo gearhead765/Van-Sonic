@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Van Sonic</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="images/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="images/favicon-16x16.png">
+  <link rel="icon" href="images/favicon.ico" sizes="any">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --background: #f3f6fa;
+      --text: #1f2a37;
+      --muted: #475569;
+      --border: #cbd5e1;
+      --accent: #166534;
+      --error: #b91c1c;
+      --link: #1f6feb;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--background); color: var(--text); font: 16px/1.5 Arial, Helvetica, sans-serif; }
+    main { max-width: 760px; margin: 0 auto; padding: 32px 20px; }
+    header { display: flex; align-items: center; gap: 12px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+    header img { width: 28px; height: 28px; }
+    h1 { margin: 0; font-size: 24px; }
+    a { color: var(--link); text-underline-offset: 4px; }
+    header a { margin-left: auto; }
+    a:focus-visible { outline: 2px solid var(--link); outline-offset: 4px; }
+    .clock { padding: 24px 0; border-bottom: 1px solid var(--border); }
+    .label, dt { color: var(--muted); font-size: 14px; }
+    #currentTime { display: block; font-size: 20px; font-variant-numeric: tabular-nums; min-height: 60px; }
+    section { padding: 24px 0; border-bottom: 1px solid var(--border); }
+    h2 { margin: 0 0 16px; font-size: 18px; }
+    dl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; margin: 0; }
+    dd { margin: 8px 0 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+    .value { font-size: 30px; line-height: 1.3; min-height: 40px; }
+    .reading-time { display: block; min-height: 48px; }
+    .send-status { min-height: 24px; }
+    .send-status[data-state="Success"] { color: var(--accent); }
+    .send-status[data-state="Failed"] { color: var(--error); }
+    #connectionStatus { margin: 16px 0 0; color: var(--muted); font-size: 14px; }
+    #connectionStatus[data-state="live"] { color: var(--accent); }
+    #connectionStatus[data-state="error"] { color: var(--error); }
+    @media (max-width: 540px) {
+      main { padding: 20px 16px; }
+      dl { grid-template-columns: minmax(0, 1fr); }
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --background: #0f141b; --text: #e2e8f0; --muted: #a8b3c4; --border: #384456; --accent: #86efac; --error: #fca5a5; --link: #8ab4ff; }
+      header img { filter: brightness(0) invert(1); }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <img src="images/radio.png" alt="" width="28" height="28">
+      <h1>Van Sonic</h1>
+    </header>
+    <div class="clock">
+      <span class="label">Current Time</span>
+      <time id="currentTime">--</time>
+    </div>
+    <section data-sensor-id="1" aria-labelledby="sensor-1">
+      <h2 id="sensor-1">Ultrasonic Sensor</h2>
+      <dl>
+        <div><dt>Last Successful Reading</dt><dd class="value" id="value-1">--</dd></div>
+        <div><dt>Last Successful Reading Time</dt><dd><time class="reading-time" id="time-1">No successful reading yet</time></dd></div>
+        <div><dt>ESP-NOW Status</dt><dd class="send-status" id="send-status-1">Not sent</dd></div>
+        <div><dt>Last Successful Send Time</dt><dd><time class="reading-time" id="send-time-1">No successful send yet</time></dd></div>
+      </dl>
+    </section>
+    <p id="connectionStatus" role="status" aria-live="polite">Connecting...</p>
+    <noscript><p>JavaScript is required to display live readings.</p></noscript>
+  </main>
+  <script>
+    const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'medium' });
+    const valueFormat = new Intl.NumberFormat(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    const sensorIds = Array.from(document.querySelectorAll('[data-sensor-id]'), element => Number(element.dataset.sensorId));
+    const connectionStatus = document.getElementById('connectionStatus');
+
+    function updateClock() {
+      const now = new Date();
+      const clock = document.getElementById('currentTime');
+      clock.textContent = dateFormat.format(now);
+      clock.dateTime = now.toISOString();
+    }
+
+    async function updateReadings() {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 4000);
+      const requestedAt = Date.now();
+      try {
+        const response = await fetch('/readings', { cache: 'no-store', signal: controller.signal });
+        if (!response.ok) throw new Error('Readings unavailable');
+        const readings = await response.json();
+        if (!Array.isArray(readings)) throw new Error('Invalid readings');
+        const byId = new Map(readings.map(reading => [reading.id, reading]));
+        const responseTime = (requestedAt + Date.now()) / 2;
+        for (const id of sensorIds) {
+          const reading = byId.get(id);
+          if (!reading || typeof reading.received !== 'boolean') throw new Error('Missing sensor');
+          if (reading.received && (!Number.isFinite(reading.value) || !Number.isFinite(reading.age_ms)
+              || reading.age_ms < 0 || !['cm', 'in', 'm', 'ft'].includes(reading.units))) {
+            throw new Error('Invalid reading');
+          }
+          if (!['Not configured', 'Not sent', 'Sending', 'Success', 'Failed'].includes(reading.send_status)
+              || typeof reading.send_succeeded !== 'boolean'
+              || (reading.send_succeeded && (!Number.isFinite(reading.send_age_ms) || reading.send_age_ms < 0))) {
+            throw new Error('Invalid send status');
+          }
+        }
+        for (const id of sensorIds) {
+          const reading = byId.get(id);
+          const value = document.getElementById('value-' + id);
+          const time = document.getElementById('time-' + id);
+          if (reading.received) {
+            const sampledAt = new Date(responseTime - reading.age_ms);
+            value.textContent = valueFormat.format(reading.value) + ' ' + reading.units;
+            time.textContent = dateFormat.format(sampledAt);
+            time.dateTime = sampledAt.toISOString();
+          } else {
+            value.textContent = '--';
+            time.textContent = 'No successful reading yet';
+            time.removeAttribute('datetime');
+          }
+          const sendStatus = document.getElementById('send-status-' + id);
+          const sendTime = document.getElementById('send-time-' + id);
+          sendStatus.textContent = reading.send_status;
+          sendStatus.dataset.state = reading.send_status;
+          if (reading.send_succeeded) {
+            const sentAt = new Date(responseTime - reading.send_age_ms);
+            sendTime.textContent = dateFormat.format(sentAt);
+            sendTime.dateTime = sentAt.toISOString();
+          } else {
+            sendTime.textContent = 'No successful send yet';
+            sendTime.removeAttribute('datetime');
+          }
+        }
+        connectionStatus.textContent = 'Live';
+        connectionStatus.dataset.state = 'live';
+      } catch (error) {
+        connectionStatus.textContent = 'Connection lost. Retrying...';
+        connectionStatus.dataset.state = 'error';
+      } finally {
+        clearTimeout(timeout);
+        setTimeout(updateReadings, 1000);
+      }
+    }
+
+    updateClock();
+    setInterval(updateClock, 1000);
+    updateReadings();
+  </script>
+</body>
+</html>
